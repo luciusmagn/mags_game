@@ -1,58 +1,192 @@
-use raylib::prelude::*;
-use raylib::ease::{self, Tween};
-use raylib::ffi::{IsKeyPressed, KeyboardKey};
+extern crate lazy_static;
+extern crate raylib;
+extern crate fnv;
 
-use std::cmp::min;
+use raylib::prelude::*;
+
+use fnv::FnvHashMap as HashMap;
+use lazy_static::lazy_static;
+
+use std::marker::PhantomPinned;
+use std::ptr::NonNull;
+use std::sync::RwLock;
 
 mod text;
-use text::Text;
+use text::preset;
 
-fn main() {
-	let (w, h) = (800, 600);
-	let mut tick = 0;
-	let (mut rl, thread) = raylib::init()
-		.size(w, h)
-		.title("mag's Game")
-		.build();
+mod component;
+use component::Component;
 
-	rl.set_target_fps(60);
+pub(crate) enum Command {
+	SwapFor(usize, Vec<usize>),
+	Remove(Vec<usize>),
+	Add(Vec<usize>),
+}
 
-	let mut text_index = 0;
-	let texts = [
-		"you awake in a strange world...",
-		"or at least that's how you feel...",
-		"leave bed?",
-	];
+pub(crate) struct Game {
+	world:      RwLock<HashMap<usize, Box<dyn Component>>>,
+	stage:      RwLock<HashMap<usize, NonNull<Box<dyn Component>>>>,
+	commands:   RwLock<Vec<Command>>,
+	current_id: RwLock<usize>,
+	count:      RwLock<usize>,
+	_pin:       PhantomPinned,
+}
 
-	let mut text = Text::new()
-		.content(texts[text_index])
-		.font_size(20)
-		.centered(true)
-		.position(w / 2, h / 2)
-		.color(Color::WHITE)
-		.text_tween(Tween::new(ease::cubic_in, 0.0, 1.0, 1.5))
-		.alpha_tween(Tween::new(ease::cubic_in, 0.0, 1.0, 0.5))
-		.cursor(true);
+unsafe impl Send for Game {}
+unsafe impl Sync for Game {}
 
-	while !rl.window_should_close() {
-		tick += 1;
+impl Game {
+	fn new() -> Self {
+		Self {
+			world:      RwLock::new(HashMap::default()),
+			stage:      RwLock::new(HashMap::default()),
+			commands:   RwLock::new(vec![]),
+			current_id: RwLock::new(0),
+			count:      RwLock::new(0),
+			_pin:       PhantomPinned,
+		}
+	}
 
-		let mut d = rl.begin_drawing(&thread);
-		d.clear_background(Color::BLACK);
-		text.draw(&mut d);
+	fn search(&self, namespace: &str, contents: &str) -> Option<usize> {
+		let world = self.world.read().unwrap();
 
-		if unsafe { IsKeyPressed(KeyboardKey::KEY_SPACE as i32) } {
-			text_index = min(texts.len() - 1, text_index + 1);
+		world
+			.iter()
+			.find(|(_, v)| v.search(namespace, contents))
+			.and_then(|x| Some(*x.0))
+	}
 
-			text = Text::new()
-				.content(texts[text_index])
-				.font_size(20)
-				.centered(true)
-				.position(w / 2, h / 2)
-				.color(Color::WHITE)
-				.text_tween(Tween::new(ease::cubic_in, 0.0, 1.0, 1.5))
-				.alpha_tween(Tween::new(ease::cubic_in, 0.0, 1.0, 0.5))
-				.cursor(true);
+	pub fn add(&self, namespace: &str, contents: &[&str]) -> Option<()> {
+		let mut commands = self.commands.write().unwrap();
+
+		let ids =
+			contents.iter().filter_map(|x| self.search(namespace, x)).collect::<Vec<_>>();
+		commands.push(Command::Add(ids));
+		Some(())
+	}
+
+	pub fn remove(&self, namespace: &str, contents: &[&str]) -> Option<()> {
+		let mut commands = self.commands.write().unwrap();
+		let ids =
+			contents.iter().filter_map(|x| self.search(namespace, x)).collect::<Vec<_>>();
+		commands.push(Command::Remove(ids));
+		Some(())
+	}
+
+	pub fn swap_for(&self, namespace: &str, contents: &[&str]) -> Option<()> {
+		let current_id = self.current_id.read().unwrap();
+		let mut commands = self.commands.write().unwrap();
+		let ids =
+			contents.iter().filter_map(|x| self.search(namespace, x)).collect::<Vec<_>>();
+		commands.push(Command::SwapFor(*current_id, ids));
+		Some(())
+	}
+
+	pub fn component<T: Component + 'static>(&self, component: T) -> &Self {
+		let mut count = self.count.write().unwrap();
+		let mut world = self.world.write().unwrap();
+
+		world.insert(*count, Box::new(component));
+
+		if *count == 0 {
+			let mut commands = self.commands.write().unwrap();
+			commands.push(Command::Add(vec![0]));
+		}
+
+		*count += 1;
+		self
+	}
+
+	pub fn update(&self, rl: &mut RaylibHandle) {
+		let mut stage = self.stage.write().unwrap();
+
+		{
+			let mut commands = self.commands.write().unwrap();
+			let mut world = self.world.write().unwrap();
+			eprintln!("update: {:?} {:?}", *stage, *world);
+
+			for c in commands.drain(..) {
+				match c {
+					Command::Add(ids) => ids.iter().for_each(|x| {
+						world.get_mut(x).and_then(|y| stage.insert(*x, NonNull::from(y)));
+					}),
+					Command::Remove(ids) => {
+						ids.iter().for_each(|x| {
+							stage.remove(x);
+						});
+					}
+					Command::SwapFor(id, ids) => {
+						stage.remove(&id);
+						ids.iter().for_each(|x| {
+							world
+								.get_mut(x)
+								.map(|y| {
+									y.reset();
+									y
+								})
+								.and_then(|y| stage.insert(*x, NonNull::from(y)));
+						});
+					}
+				}
+			}
+		}
+
+		for (id, comp) in stage.iter_mut() {
+			{
+				let mut current_id = self.current_id.write().unwrap();
+				*current_id = *id;
+			}
+			let comp = unsafe { comp.as_mut() };
+			comp.update(rl);
+		}
+	}
+
+	pub fn draw(&self, d: &mut RaylibDrawHandle) {
+		let mut stage = self.stage.write().unwrap();
+		eprintln!("draw: {:?}", *stage);
+		for (_, comp) in stage.iter_mut() {
+			let comp = unsafe { comp.as_mut() };
+			comp.draw(d);
 		}
 	}
 }
+
+lazy_static! {
+	pub(crate) static ref TICK: RwLock<usize> = RwLock::new(0);
+	pub(crate) static ref GAME: RwLock<Game> = RwLock::new(Game::new());
+}
+
+pub fn tick() -> usize {
+	let t = TICK.read().unwrap();
+	*t
+}
+
+pub fn add_tick() {
+	let mut t = TICK.write().unwrap();
+	*t += 1;
+}
+
+fn main() {
+	let (w, h) = (800, 600);
+	let (mut rl, thread) = raylib::init().size(w, h).title("mag's Game").build();
+
+	rl.set_target_fps(60);
+
+	let game = GAME.read().unwrap();
+	game
+		.component(preset::intro_style("you awake in a strange world...").next("or at least that's how you feel..."))
+		.component(preset::intro_style("or at least that's how you feel...").next("exit bed?"))
+		.component(preset::intro_style("exit bed?").next("exit bed?"));
+
+	while !rl.window_should_close() {
+		add_tick();
+
+		let game = GAME.read().unwrap();
+		game.update(&mut rl);
+
+		let mut d = rl.begin_drawing(&thread);
+		d.clear_background(Color::BLACK);
+		game.draw(&mut d);
+	}
+}
+

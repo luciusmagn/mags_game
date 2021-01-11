@@ -8,10 +8,10 @@ use crate::GAME;
 use crate::component::Component;
 
 pub struct TwoChoice {
-	content:     String,
-	option1:     String,
-	option2:     String,
-	selected:    bool,
+	content:  String,
+	option1:  String,
+	option2:  String,
+	selected: bool,
 
 	color:        Color,
 	font_size:    i32,
@@ -21,10 +21,10 @@ pub struct TwoChoice {
 	namespace:    &'static str,
 	cursor:       bool,
 
-	next_ns1:    &'static str,
-	next_name1:  String,
-	next_ns2:    &'static str,
-	next_name2:  String,
+	next_ns1:   &'static str,
+	next_name1: String,
+	next_ns2:   &'static str,
+	next_name2: String,
 }
 
 impl fmt::Debug for TwoChoice {
@@ -35,10 +35,10 @@ impl fmt::Debug for TwoChoice {
 impl TwoChoice {
 	pub fn new() -> Self {
 		Self {
-			content:     "<empty>".to_string(),
-			option1:     "yes".to_string(),
-			option2:     "no".to_string(),
-			selected:    true,
+			content:  "<empty>".to_string(),
+			option1:  "yes".to_string(),
+			option2:  "no".to_string(),
+			selected: true,
 
 			color:        Color::WHITE,
 			font_size:    20,
@@ -48,10 +48,10 @@ impl TwoChoice {
 			namespace:    "default",
 			cursor:       false,
 
-			next_ns1:     "default",
-			next_name1:   String::new(),
-			next_ns2:     "default",
-			next_name2:   String::new(),
+			next_ns1:   "default",
+			next_name1: String::new(),
+			next_ns2:   "default",
+			next_name2: String::new(),
 		}
 	}
 
@@ -133,7 +133,8 @@ impl Component for TwoChoice {
 		}
 
 		if rl.is_key_pressed(KeyboardKey::KEY_LEFT)
-		|| rl.is_key_pressed(KeyboardKey::KEY_RIGHT) {
+			|| rl.is_key_pressed(KeyboardKey::KEY_RIGHT)
+		{
 			self.selected = !self.selected;
 		}
 	}
@@ -171,7 +172,7 @@ impl Component for TwoChoice {
 				450 + self.font_size + 3,
 				measure_text(&self.option1, self.font_size),
 				4,
-				cur_color
+				cur_color,
 			);
 		} else {
 			d.draw_rectangle(
@@ -179,7 +180,7 @@ impl Component for TwoChoice {
 				450 + self.font_size + 3,
 				measure_text(&self.option2, self.font_size),
 				4,
-				cur_color
+				cur_color,
 			);
 		}
 
@@ -194,4 +195,3 @@ impl Component for TwoChoice {
 		}
 	}
 }
-

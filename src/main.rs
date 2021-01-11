@@ -3,6 +3,7 @@ extern crate raylib;
 extern crate fnv;
 
 use raylib::prelude::*;
+use raylib::ease::{self, Tween};
 
 use fnv::FnvHashMap as HashMap;
 use lazy_static::lazy_static;
@@ -13,6 +14,9 @@ use std::sync::RwLock;
 
 mod text;
 use text::preset;
+
+mod two_choice;
+use two_choice::TwoChoice;
 
 mod component;
 use component::Component;
@@ -176,7 +180,16 @@ fn main() {
 	game
 		.component(preset::intro_style("you awake in a strange world...").next("or at least that's how you feel..."))
 		.component(preset::intro_style("or at least that's how you feel...").next("exit bed?"))
-		.component(preset::intro_style("exit bed?").next("exit bed?"));
+		.component(
+			TwoChoice::new().content("exit bed?")
+			.text_tween(Tween::new(ease::cubic_in, 0.0, 1.0, 1.5))
+			.alpha_tween(Tween::new(ease::cubic_in, 0.0, 1.0, 0.5))
+			.next_one("you exited the bed, nothing of interest happened...")
+			.next_two("you rolled over and went back to sleep, nothing of interest happened...")
+		)
+		.component(preset::intro_style("you exited the bed, nothing of interest happened..."))
+		.component(preset::intro_style("you rolled over and went back to sleep, nothing of interest happened..."))
+	;
 
 	while !rl.window_should_close() {
 		add_tick();

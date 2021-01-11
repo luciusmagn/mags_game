@@ -40,7 +40,7 @@ impl Game {
 	fn search(&self, namespace: &str, contents: &str) -> Option<usize> {
 		let world = self.world.read().unwrap();
 
-		world.iter().find(|(_, v)| v.search(namespace, contents)).and_then(|x| Some(*x.0))
+		world.iter().find(|(_, v)| v.search(namespace, contents)).map(|x| *x.0)
 	}
 
 	pub fn add(&self, namespace: &str, contents: &[&str]) -> Option<()> {

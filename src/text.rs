@@ -122,11 +122,11 @@ impl Component for Text {
 
 		let cur_color = match &mut self.alpha_tween {
 			Some(ref mut t) => {
-				let mut c = self.color.clone();
+				let mut c = self.color;
 				c.a = (c.a as f32 * t.apply(0.01)) as u8;
 				c
 			}
-			None => self.color.clone(),
+			None => self.color,
 		};
 
 		let (x, y);
